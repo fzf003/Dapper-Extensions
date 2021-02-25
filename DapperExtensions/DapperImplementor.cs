@@ -102,6 +102,7 @@ namespace DapperExtensions
             IClassMapper classMap = SqlGenerator.Configuration.GetMap<T>();
             List<IPropertyMap> nonIdentityKeyProperties = classMap.Properties.Where(p => p.KeyType == KeyType.Guid || p.KeyType == KeyType.Assigned).ToList();
             var identityColumn = classMap.Properties.SingleOrDefault(p => p.KeyType == KeyType.Identity);
+            var generatedColumn = classMap.Properties.SingleOrDefault(p => p.KeyType == KeyType.Generated);
             var triggerIdentityColumn = classMap.Properties.SingleOrDefault(p => p.KeyType == KeyType.TriggerIdentity);
             foreach (var column in nonIdentityKeyProperties)
             {
@@ -150,6 +151,13 @@ namespace DapperExtensions
                 keyValues.Add(identityColumn.Name, identityInt);
                 identityColumn.PropertyInfo.SetValue(entity, identityInt, null);
             }
+            else if (generatedColumn != null)
+            {
+                T inserted = connection.Query<T>(sql, entity, transaction, false, commandTimeout, CommandType.Text).First();
+                var generatedId = generatedColumn.PropertyInfo.GetValue(inserted, null);
+                keyValues.Add(generatedColumn.Name, generatedId);
+                generatedColumn.PropertyInfo.SetValue(entity, generatedId, null);
+            }
             else if (triggerIdentityColumn != null)
             {
                 var dynamicParameters = new DynamicParameters();
@@ -195,13 +203,10 @@ namespace DapperExtensions
             string sql = SqlGenerator.Update(classMap, predicate, parameters, ignoreAllKeyProperties);
             DynamicParameters dynamicParameters = new DynamicParameters();
 
-            var columns = ignoreAllKeyProperties 
-                ? classMap.Properties.Where(p => !(p.Ignored || p.IsReadOnly) && p.KeyType == KeyType.NotAKey) 
-                : classMap.Properties.Where(p => !(p.Ignored || p.IsReadOnly || p.KeyType == KeyType.Identity || p.KeyType == KeyType.Assigned));
-
-            foreach (var property in ReflectionHelper.GetObjectValues(entity).Where(property => columns.Any(c => c.Name == property.Key)))
+            var columns = classMap.Properties.Where(p => !(p.UpdateIgnored || p.KeyType == KeyType.Identity || p.KeyType == KeyType.Assigned));
+            foreach (var property in ReflectionHelper.GetTypeValues(entity).Where(property => columns.Any(c => c.PropertyInfo == property.Key)))
             {
-                dynamicParameters.Add(property.Key, property.Value);
+                dynamicParameters.Add(property.Key.Name, property.Value);
             }
 
             foreach (var parameter in parameters)

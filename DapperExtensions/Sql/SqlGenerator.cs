@@ -139,7 +139,7 @@ namespace DapperExtensions.Sql
         
         public virtual string Insert(IClassMapper classMap)
         {
-            var columns = classMap.Properties.Where(p => !(p.Ignored || p.IsReadOnly || p.KeyType == KeyType.Identity || p.KeyType == KeyType.TriggerIdentity));
+            var columns = classMap.Properties.Where(p => !(p.InsertIgnored || p.KeyType == KeyType.Identity || p.KeyType == KeyType.Generated));
             if (!columns.Any())
             {
                 throw new ArgumentException("No columns were mapped.");
@@ -147,6 +147,15 @@ namespace DapperExtensions.Sql
 
             var columnNames = columns.Select(p => GetColumnName(classMap, p, false));
             var parameters = columns.Select(p => Configuration.Dialect.ParameterPrefix + p.Name);
+
+            if (classMap.Properties.Any(p => p.KeyType == KeyType.Generated))
+            {
+                return Configuration.Dialect.GetInsertedRecordSql(
+                    GetTableName(classMap),
+                    columnNames.AppendStrings(),
+                    parameters.AppendStrings(),
+                    classMap.Properties.Where(x => !x.InsertIgnored).ToList());
+            }
 
             string sql = string.Format("INSERT INTO {0} ({1}) VALUES ({2})",
                                        GetTableName(classMap),
@@ -177,11 +186,8 @@ namespace DapperExtensions.Sql
             {
                 throw new ArgumentNullException("Parameters");
             }
-            
-            var columns = ignoreAllKeyProperties
-                ? classMap.Properties.Where(p => !(p.Ignored || p.IsReadOnly) && p.KeyType == KeyType.NotAKey)
-                : classMap.Properties.Where(p => !(p.Ignored || p.IsReadOnly || p.KeyType == KeyType.Identity || p.KeyType == KeyType.Assigned));
 
+            var columns = classMap.Properties.Where(p => !(p.UpdateIgnored || p.KeyType == KeyType.Identity));
             if (!columns.Any())
             {
                 throw new ArgumentException("No columns were mapped.");
@@ -256,7 +262,7 @@ namespace DapperExtensions.Sql
         public virtual string BuildSelectColumns(IClassMapper classMap)
         {
             var columns = classMap.Properties
-                .Where(p => !p.Ignored)
+                .Where(p => !p.SelectIgnored)
                 .Select(p => GetColumnName(classMap, p, true));
             return columns.AppendStrings();
         }
